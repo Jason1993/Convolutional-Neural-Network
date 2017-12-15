@@ -1,6 +1,19 @@
 import struct
 import numpy as np
-np.random.seed(1)
+
+def show(image):
+    """
+    Render a given numpy.uint8 2D array of pixel data.
+    """
+    from matplotlib import pyplot
+    import matplotlib as mpl
+    fig = pyplot.figure()
+    ax = fig.add_subplot(1,1,1)
+    imgplot = ax.imshow(image, cmap=mpl.cm.Greys)
+    imgplot.set_interpolation('nearest')
+    ax.xaxis.set_ticks_position('top')
+    ax.yaxis.set_ticks_position('left')
+    pyplot.show()
 
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
     N, C, H, W = x_shape
@@ -24,8 +37,7 @@ def im2col_indices(x, field_height, field_width, padding=1, stride=1):
     p = padding
     x_padded = np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
 
-    k, i, j = get_im2col_indices(x.shape, field_height, field_width, padding,
-                                 stride)
+    k, i, j = get_im2col_indices(x.shape, field_height, field_width, padding, stride)
 
     cols = x_padded[:, k, i, j]
     C = x.shape[1]
@@ -37,8 +49,7 @@ def col2im_indices(cols, x_shape, field_height=3, field_width=3, padding=1, stri
     N, C, H, W = x_shape
     H_padded, W_padded = H + 2 * padding, W + 2 * padding
     x_padded = np.zeros((N, C, H_padded, W_padded), dtype=cols.dtype)
-    k, i, j = get_im2col_indices(x_shape, field_height, field_width, padding,
-                                 stride)
+    k, i, j = get_im2col_indices(x_shape, field_height, field_width, padding, stride)
 
     cols_reshaped = cols.reshape(C * field_height * field_width, -1, N)
     cols_reshaped = cols_reshaped.transpose(2, 0, 1)
@@ -95,6 +106,7 @@ def maxpool_col2im_indices(grad, argmax_cols, x_shape, field_height=3, field_wid
     if padding == 0:
         return x_padded
     return x_padded[:, :, padding:-padding, padding:-padding]
+
 def readData():
     '''
     The files should be uncompressed.
@@ -130,16 +142,6 @@ def readData():
 
     return tr_label, tr_img, te_label, te_img
 
-def zero_pad(X, pad):
-    X_pad = np.pad(X, ((0, 0), (pad, pad), (pad, pad), (0, 0)), 'constant', constant_values=(0, 0))
-    return X_pad
-
-
-def conv_single_step(a_slice_prev, W, b):
-    s = np.multiply(a_slice_prev, W)
-    Z = np.sum(s)
-    Z = Z + float(b)
-    return Z
 
 def conv_forward(A_prev, W, b, hparameters):
     stride = hparameters['stride']
@@ -175,36 +177,19 @@ def max_pool_forward(A_prev, hparameters):
     cache = (A_prev, argmax_cols, hparameters)
     return A,cache
 
+
 def conv_backward(dZ, cache):
     (A_prev, A_col, W, b, hparameters) = cache
-
     stride = hparameters['stride']
     pad = hparameters['pad']
     n_C, n_C_prev, f, f = W.shape
-
-    dZ_reshape = dZ.transpose(1, 2, 3, 0).reshape(n_C, -1)
-    W_reshape = W.reshape(n_C, -1)
-    out = np.matmul(W_reshape.T, dZ_reshape)
+    dZ_reshaped = dZ.transpose(1, 2, 3, 0).reshape(n_C, -1)
+    dW = np.dot(dZ_reshaped , A_col.T).reshape(W.shape)
+    W_reshape = W.reshape(n_C,-1)
+    out = np.matmul(W_reshape.T, dZ_reshaped)
     out_backward = col2im_indices(out, A_prev.shape, f, f, pad, stride)
-    dW = np.matmul(dZ_reshape , A_col.T).reshape(W.shape)
     db = np.sum(dZ, axis=(0, 2, 3)).reshape(n_C, -1)
     return out_backward, dW, db
-
-def create_mask_from_window(x):
-    mask = (x == np.max(x))
-    return mask
-
-def distribute_value(dz, shape):
-    # Retrieve dimensions from shape (≈1 line)
-    (n_H, n_W) = shape
-
-    # Compute the value to distribute on the matrix (≈1 line)
-    average = dz / n_H / n_W
-
-    # Create a matrix where every entry is the "average" value (≈1 line)
-    a = np.ones((n_H, n_W)) * average
-
-    return a
 
 def max_pool_backward(dA, cache):
     # Retrieve information from cache (≈1 line)
@@ -217,8 +202,7 @@ def max_pool_backward(dA, cache):
     dA_prev = maxpool_col2im_indices(dA, argmax_cols, A_prev.shape, f, f, 0, stride)
     return dA_prev
 
-
-def random_mini_batches(X, Y, mini_batch_size = 100):
+def random_mini_batches(X, Y, mini_batch_size = 5):
     m = X.shape[0]  # number of training examples
     mini_batches = []
     permutation = list(np.random.permutation(m))
@@ -248,17 +232,21 @@ def compute_cost(A4, Y):
     '''
     #loss = np.sum(np.multiply( np.log(A4), Y),axis= 1)*(-1)
     #cost = np.sum(loss)/A4.shape[0]
+    A4 = np.array(A4)
     calib = A4 - np.amax(A4, axis=1, keepdims=True)
     sum_exp = np.sum(np.exp(calib), axis=1, keepdims=True)
     cost = - np.sum(np.multiply(Y,calib - np.log(sum_exp)))/ A4.shape[0]
     return cost
 
 
-def model(X, Y, learning_rate = 0.009, epoch_num = 100, mini_batch_size = 100):
+def model(X, Y, learning_rate = 0.001, epoch_num = 20, mini_batch_size = 100):
     #initialize hyper parameters
-    hp_conv = {}
-    hp_conv['stride'] = 1
-    hp_conv['pad'] = 0
+    hp_conv1 = {}
+    hp_conv1['stride'] = 1
+    hp_conv1['pad'] = 2
+    hp_conv2 = {}
+    hp_conv2['stride'] = 1
+    hp_conv2['pad'] = 1
     hp_pool = {}
     hp_pool['stride'] = 2
     hp_pool['f'] = 2
@@ -268,66 +256,77 @@ def model(X, Y, learning_rate = 0.009, epoch_num = 100, mini_batch_size = 100):
     One_hot_Y = np.eye(10)[Y]
 
     #initialize parameters
-    W1 = np.random.normal(0, 0.1,(32, 1, 5, 5))
-    b1 = np.random.normal(0, 0.1, (32, 1))
-    W2 = np.random.normal(0, 0.1,(64, 32, 5, 5))
-    b2 = np.random.normal(0, 0.1, (64, 1))
-    W3 = np.random.rand(1024,512) * 0.001
-    b3 = np.zeros((1,512))
-    W4 = np.random.rand(512,10) * 0.001
-    b4 = np.zeros((1,10))
+    W1 = np.random.normal(0, 0.1,(25, 1, 5, 5))
+    b1 = np.random.normal(0, 0.1, (25, 1))
+    W2 = np.random.normal(0, 0.1,(25, 25, 3, 3))
+    b2 = np.random.normal(0, 0.1, (25, 1))
+    W3 = np.random.normal(0, 0.01, (1225,512))
+    b3 = np.random.normal(0, 0.01, (1,512))
+    W4 = np.random.normal(0, 0.01, (512,10))
+    b4 = np.random.normal(0, 0.01, (1,10))
     for epoch in range(epoch_num):
-        minibatches = random_mini_batches(X,One_hot_Y)
+        minibatches = random_mini_batches(X,One_hot_Y,mini_batch_size)
         count= 0
         for minibatch in minibatches:
             count += 1
             (minibatch_X, minibatch_Y) = minibatch
-
+            #show(minibatch_X[0,0,:,:])
+            #print(minibatch_Y[0])
             #forward propagation
             #first convolution layer
-            Z1,cacheConv1 = conv_forward(minibatch_X, W1, b1, hp_conv)
+            Z1,cacheConv1 = conv_forward(minibatch_X, W1, b1, hp_conv1)
             #relu activation
-            A1 = Z1* (Z1 > 0)
+            A1 = Z1*(Z1>0)
             #first max-pooling layer
             P1, cachePool1 = max_pool_forward(A1, hp_pool)
             #second convolution layer
-            Z2,cacheConv2 = conv_forward(P1, W2, b2, hp_conv)
+            Z2,cacheConv2 = conv_forward(P1, W2, b2, hp_conv2)
             #relu activation
-            A2 = Z2 * (Z2 > 0)
+            A2 = Z2*(Z2>0)
             #second max-pool layer
             P2, cachePool2 = max_pool_forward(A2, hp_pool)
-            #dense layer
             P2_flat = P2.reshape(P2.shape[0], -1)
-            #P2_ori = P2_flat.reshape(P2.shape)
-            Z3 = np.dot(P2_flat,W3)+b3
+            #dropout layer
+            mask = (np.random.uniform(0.0, 1.0, P2_flat.shape) >= 0.5).astype(float) * (1.0 / (1.0 - 0.5))
+            P2_dropout = np.multiply(P2_flat,mask)
+            # dense layer
+            Z3 = np.dot(P2_dropout,W3)+b3
             #relu
-            A3 = Z3 * (Z3 > 0)
+            A3 = Z3*(Z3>0)
             #softmax
             Z4 = np.dot(A3,W4)+b4
+            '''
             temp = np.matrix(np.max(Z4, axis=1)).T
             res = temp.repeat(10, axis =1)
             exps = np.exp(Z4 - res)
             A4 = exps/np.sum(exps, axis =1)
+            '''
+            calib = Z4 - np.amax(Z4, axis = 1, keepdims = True)
+            sum_exp = np.sum(np.exp(calib), axis = 1, keepdims = True)
+            A4 = np.exp(calib) / sum_exp
+            loss = - np.sum(np.multiply(minibatch_Y, calib - np.log(sum_exp))) / minibatch_Y.shape[0]
+            Y_predict = np.argmax(A4, axis=1)
+            Y_predict_one_hot = np.eye(10)[Y_predict]
+            Y_predict_one_hot = Y_predict_one_hot.reshape(-1,10)
 
-            cost = compute_cost(Z4,minibatch_Y)
 
             #back propagation
             #compute gradients back chain rule
-            dZ4 = A4 - minibatch_Y
+            dZ4 = (A4 - minibatch_Y)/minibatch_Y.shape[0]
             dW4 = np.dot(A3.T,dZ4)
             db4 = np.sum(dZ4, axis=0)/len(dZ4)
             dA3 = np.dot(dZ4,W4.T)
-            dZ3 = np.multiply(dA3,(Z3 > 0))
+            dZ3 = np.multiply(dA3,(Z3>0))
             dW3 = np.dot(P2_flat.T,dZ3)
             db3 = np.sum(dZ3, axis=0)/len(dZ3)
-            dP2_flat = np.dot(dZ3,W3.T)
-            dP2_flat = np.array(dP2_flat)
+            dP2_dropout = np.array(np.dot(dZ3,W3.T))
+            dP2_flat = np.multiply(dP2_dropout,mask)
             dP2 = dP2_flat.reshape(P2.shape)
             dA2 = max_pool_backward(dP2,cachePool2)
-            dZ2 = dA2 * (Z2 > 0)
+            dZ2 = np.multiply(dA2, (Z2>0))
             dP1, dW2, db2 = conv_backward(dZ2,cacheConv2)
             dA1 = max_pool_backward(dP1,cachePool1)
-            dZ1 = dA1 * (Z1 > 0)
+            dZ1 = np.multiply(dA1, (Z1>0))
             dA0, dW1, db1 = conv_backward(dZ1,cacheConv1)
 
             #update parameters
@@ -339,39 +338,47 @@ def model(X, Y, learning_rate = 0.009, epoch_num = 100, mini_batch_size = 100):
             b3 -= learning_rate * db3
             W4 -= learning_rate * dW4
             b4 -= learning_rate * db4
-            print("Finished running "+str(count)+" minibatches, and the cost is "+ str(cost))
-        print("After "+str(epoch)+" epoches, the cost is "+ str(cost))
-    parameters = (W1,b1,W2,b2,W3,b3,W4,b4)
+            #print("Finished running "+str(count)+" minibatches, and the cost is "+ str(loss))
+            parameters = (W1, b1, W2, b2, W3, b3, W4, b4)
+            minibatch_Y_normal = [np.where(r == 1)[0][0] for r in minibatch_Y]
+            predict(parameters, minibatch_X, minibatch_Y_normal)
+
+        print("After "+str(epoch)+" epoches, the cost is "+ str(loss))
+        minibatch_Y_normal = [np.where(r == 1)[0][0] for r in minibatch_Y]
+        predict(parameters, minibatch_X, minibatch_Y_normal)
     return parameters
 
 def predict(parameters, X, Y):
-    hp_conv = {}
-    hp_conv['stride'] = 1
-    hp_conv['pad'] = 0
+    hp_conv1 = {}
+    hp_conv1['stride'] = 1
+    hp_conv1['pad'] = 2
+    hp_conv2 = {}
+    hp_conv2['stride'] = 1
+    hp_conv2['pad'] = 1
     hp_pool = {}
     hp_pool['stride'] = 2
     hp_pool['f'] = 2
     (W1,b1,W2,b2,W3,b3,W4,b4) = parameters
-    Z1, cacheConv1 = conv_forward(X,W1,b1,hp_conv)
+    Z1, cacheConv1 = conv_forward(X,W1,b1,hp_conv1)
     A1 = Z1 * (Z1 > 0)
     P1, cachePool1 = max_pool_forward(A1, hp_pool)
-    Z2, cacheConv2 = conv_forward(P1, W2, b2, hp_conv)
+    Z2, cacheConv2 = conv_forward(P1, W2, b2, hp_conv2)
     A2 = Z2 * (Z2 > 0)
     P2, cachePool2 = max_pool_forward(A2, hp_pool)
-    P2_flat = P2.reshape((-1, 4 * 4 * 64))
+    P2_flat = P2.reshape(P2.shape[0], -1)
     Z3 = np.dot(P2_flat, W3) + b3
     A3 = Z3 * (Z3 > 0)
     Z4 = np.dot(A3, W4) + b4
-    temp = np.matrix(np.max(Z4, axis=1)).T
-    res = temp.repeat(10, axis=1)
-    exps = np.exp(Z4 - res)
-    A4 = exps / np.sum(exps, axis =1)
+    calib = Z4 - np.amax(Z4, axis=1, keepdims=True)
+    sum_exp = np.sum(np.exp(calib), axis=1, keepdims=True)
+    A4 = np.exp(calib) / sum_exp
     Y_predict = np.argmax(A4, axis=1)
     counter = np.sum(Y_predict == Y)
     ac = counter/len(Y)
     print("Accuracy is "+str(ac))
 
 def main():
+    np.random.seed(2)
     Y_train, X_train, Y_test, X_test = readData()
     (W1, b1, W2, b2, W3, b3, W4, b4) = model(X_train,Y_train, epoch_num= 20)
     params = (W1, b1, W2, b2, W3, b3, W4, b4)
