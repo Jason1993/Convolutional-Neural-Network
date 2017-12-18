@@ -36,6 +36,89 @@ def readData():
 
     return tr_label, tr_img, te_label, te_img
 
+def get_3_dimension_indices(volume_shape, f, padding, stride):
+    '''
+    Get volume indices of depth, height, width dimensions.
+    '''
+    M, D, H, W = volume_shape
+    out_height = int((H + 2 * padding - f) / stride) + 1
+    out_width = int((W + 2 * padding - f) / stride) + 1
+    depth_indices = np.repeat(np.arange(D), f * f).reshape(-1, 1)
+    height_part1 = np.tile(np.repeat(np.arange(f), f), D).reshape(-1,1)
+    height_part2 = stride * np.repeat(np.arange(out_height), out_width).reshape(1,-1)
+    height_indices = height_part1+height_part2
+    width_part1 = np.tile(np.arange(f), f * D).reshape(-1,1)
+    width_part2 = stride * np.tile(np.arange(out_width), out_height).reshape(1,-1)
+    width_indices = width_part1+width_part2
+    return depth_indices, height_indices, width_indices
+
+def transform_to_column(A_prev, f, padding, stride):
+    '''
+    Transform volume to a 2D matrix to be used for convolution
+    '''
+    M, D, H, W = A_prev.shape
+    indices_d, indices_h, indices_w = get_3_dimension_indices(A_prev.shape,f,padding,stride)
+    A_prev_pad = np.pad(A_prev, ((0, 0), (0, 0), (padding, padding), (padding, padding)), mode='constant')
+    A_column = A_prev_pad[:, indices_d, indices_h, indices_w]
+    A_column_reshaped = A_column.transpose(1, 2, 0).reshape(f*f*D, -1)
+    return A_column_reshaped
+
+def transform_to_volume(A_prev_col, volume_shape, f, padding, stride):
+    '''
+    Transform from 2D matrix to volume for convolution.
+    '''
+    M, D, H, W = volume_shape
+    indices_d, indices_h, indices_w = get_3_dimension_indices(volume_shape,f,padding,stride)
+    Zero = np.zeros((M, D, H+2*padding, W+2*padding), dtype=A_prev_col.dtype)
+    A_prev_col_reshape = A_prev_col.reshape(D*f*f, -1, M).transpose(2,0,1)
+    np.add.at(Zero, (slice(None), indices_d, indices_h, indices_w), A_prev_col_reshape)
+    return Zero[:,:, padding:-padding, padding:-padding]
+
+def get_2_dimension_indices(volume_shape, f, padding, stride):
+    '''
+    Get indices of height and width dimensions.
+    '''
+    M, D, H, W = volume_shape
+    out_height = int((H + 2 * padding - f) / stride) + 1
+    out_width = int((W + 2 * padding - f) / stride) + 1
+    height_part1 = np.repeat(np.arange(f), f).reshape(-1, 1)
+    height_part2 = stride * np.repeat(np.arange(out_height), out_width).reshape(1, -1)
+    height_indices = height_part1 + height_part2
+    width_part1 = np.tile(np.arange(f), f).reshape(-1, 1)
+    width_part2 = stride * np.tile(np.arange(out_width), out_height).reshape(1, -1)
+    width_indices = width_part1 + width_part2
+    return height_indices,width_indices
+
+def maxpool_transform_to_column(A_prev, f, padding, stride):
+    '''
+        Transform volume to a 2D matrix to be used for maxpooling.
+    '''
+    A_prev_pad = np.pad(A_prev, ((0, 0), (0, 0), (padding, padding), (padding, padding)), mode='constant')
+    height_indices, width_indices = get_2_dimension_indices(A_prev.shape, f, padding, stride)
+    A_prev_column = A_prev_pad[:,:, height_indices, width_indices]
+    max_column = np.amax(A_prev_column, axis= 2)
+    argmax_column = np.argmax(A_prev_column, axis= 2)
+    return max_column, argmax_column
+
+def maxpool_transform_to_volumn(dA, argmax_cols, A_prev_shape, f, padding, stride):
+    '''
+        Transform from 2D matrix to volume for maxpooling
+    '''
+    M, D, W, H = A_prev_shape
+    Zeros = np.zeros((M, D, H+ 2*padding, W + 2*padding), dtype=dA.dtype)
+    heigth_indices, width_indices = get_2_dimension_indices(A_prev_shape, f, padding, stride)
+    map_size = heigth_indices.shape[1]
+    height = np.tile(heigth_indices,(1, M*D))
+    width = np.tile(width_indices,(1, M*D))
+    max_H_indices = height[argmax_cols.reshape(-1), np.arange(height.shape[1])]
+    max_W_indices = width[argmax_cols.reshape(-1), np.arange(width.shape[1])]
+    max_M_indices = np.repeat(np.arange(M), map_size * D)
+    max_D_indices = np.tile(np.repeat(np.arange(D), map_size), M)
+    np.add.at(Zeros, (max_M_indices, max_D_indices, max_H_indices, max_W_indices), dA.reshape(-1))
+    if padding == 0:
+        return Zeros
+    return Zeros[:, :, padding:-padding, padding:-padding]
+
 def conv_forward(A_prev, W, b):
     '''
     Computing convolution forward step. In this program, convolution layers are always using Stride = 1, same padding.
@@ -48,29 +131,21 @@ def conv_forward(A_prev, W, b):
     :return Conv_output, cache
     '''
     n_C, n_C_prev, f, f = W.shape
-    m, prev_d, prev_h, prev_w = A_prev.shape
     pad = int((f-1)/2) #Same padding number
     stride = 1
-    n_H = int((prev_h - f + 2 * pad) / stride + 1) #Output volume height
-    n_W = int((prev_w - f + 2 * pad) / stride + 1) #Output volume width
-    A_prev_pad = np.pad(A_prev, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode='constant')
+    n_C, n_C_prev, f, f = W.shape
+    n_x, d_x, h_x, w_x = A_prev.shape
+    n_H = int((h_x - f + 2 * pad) / stride) + 1
+    n_W = int((w_x - f + 2 * pad) / stride) + 1
 
-    #Compute column indices
-    Col_indices_depth = np.repeat(np.arange(n_C_prev), f * f).reshape(-1, 1)
-    index_height_part = stride * np.repeat(np.arange(n_H), n_W)
-    Col_indices_height = np.tile(np.arange(f), f * n_C_prev).reshape(-1,1) + index_height_part.reshape(1,-1)
-    index_width_part = stride * np.tile(np.arange(n_W), n_H)
-    Col_indices_width = np.tile(np.arange(f), f * n_C_prev).reshape(-1,1) + index_width_part.reshape(1,-1)
+    A_col = transform_to_column(A_prev, f, pad, stride)
+    W_col = W.reshape(n_C, -1)
 
-    #Use column indices to convert the input volume into a 2D matrix for computing convolution
-    A_prev_cols = A_prev_pad[:, Col_indices_depth, Col_indices_height, Col_indices_width]
-    A_prev_cols = A_prev_cols.transpose(1, 2, 0).reshape(f * f * prev_d, -1)
-    W_col = W.reshape(n_C,-1)
-    out = np.matmul(W_col, A_prev_cols) + b
-    out = out.reshape(n_C, n_H, n_W, m)
-    Conv_output = out.transpose(3, 0, 1, 2)
-    cache = (A_prev, A_prev_cols, W, b, pad, stride, Col_indices_depth, Col_indices_height, Col_indices_width)
-    return Conv_output, cache
+    out = np.matmul(W_col, A_col) + b
+    out = out.reshape(n_C, n_H, n_W, n_x)
+    out_forward = out.transpose(3, 0, 1, 2)
+    cache = (A_prev, A_col, W, b, pad, stride)
+    return out_forward, cache
 
 def conv_backward(dZ, cache):
     '''
@@ -79,21 +154,15 @@ def conv_backward(dZ, cache):
     :param cache: cache stored from forward pass
     :return: Conv_backward, dW, db
     '''
-    A_prev, A_prev_cols, W, b, pad, stride, Col_indices_depth, Col_indices_height, Col_indices_width = cache
-    m, prev_d, prev_h, prev_w = A_prev.shape
+    A_prev, A_col, W, b, pad, stride = cache
     n_C, n_C_prev, f, f = W.shape
     dZ_reshaped = dZ.transpose(1, 2, 3, 0).reshape(n_C, -1)
-    dW = np.dot(dZ_reshaped, A_prev_cols.T).reshape(W.shape)
-    db = np.sum(dZ, axis=(0, 2, 3)).reshape(n_C, -1)
+    dW = np.dot(dZ_reshaped, A_col.T).reshape(W.shape)
     W_reshape = W.reshape(n_C, -1)
     out = np.matmul(W_reshape.T, dZ_reshaped)
-    H_padded, W_padded = prev_h + 2 * pad, prev_w + 2 * pad
-    A_prev_pad = np.zeros((m, prev_d, H_padded, W_padded), dtype=A_prev_cols.dtype)
-    cols_reshaped = out.reshape(prev_d * f * f, -1, m)
-    cols_reshaped = cols_reshaped.transpose(2, 0, 1)
-    np.add.at(A_prev_pad, (slice(None), Col_indices_depth, Col_indices_height, Col_indices_width), cols_reshaped)
-    Conv_backward = A_prev_pad[:, :, pad:-pad, pad:-pad]
-    return Conv_backward, dW, db
+    out_backward = transform_to_volume(out, A_prev.shape, f, pad, stride)
+    db = np.sum(dZ, axis=(0, 2, 3)).reshape(n_C, -1)
+    return out_backward, dW, db
 
 def max_pool_forward(A_prev, hparameters):
     '''
@@ -102,20 +171,21 @@ def max_pool_forward(A_prev, hparameters):
     :param hparameters: hyper-parameters
     :return: Max_pool_output, cache
     '''
+    (m, n_C_prev, n_H_prev, n_W_prev) = A_prev.shape
+
+    # Retrieve hyperparameters from "hparameters"
     f = hparameters["f"]
     stride = hparameters["stride"]
-    m, prev_d, prev_h, prev_w = A_prev.shape
-    n_H = int(1 + (prev_h - f) / stride)
-    n_W = int(1 + (prev_w - f) / stride)
 
-    col_indices_height = np.repeat(np.arange(f), f).reshape(-1, 1) + stride * np.repeat(np.arange(n_H), n_W).reshape(1, -1)
-    col_indices_width = np.tile(np.arange(f), f).reshape(-1, 1) + stride * np.tile(np.arange(n_W), n_H).reshape(1, -1)
-    A_prev_cols = A_prev[:, :, col_indices_height, col_indices_width]
-    max_cols = np.amax(A_prev_cols, axis=2)
-    argmax_cols = np.argmax(A_prev_cols, axis=2)
-    Max_pool_output = max_cols.reshape(m, prev_d, n_H, n_W)
-    cache = (A_prev, argmax_cols, hparameters, col_indices_height, col_indices_width)
-    return Max_pool_output, cache
+    # Define the dimensions of the output
+    n_H = int((n_H_prev - f) / stride)+1
+    n_W = int((n_W_prev - f) / stride)+1
+    n_C = n_C_prev
+
+    max_cols, argmax_cols = maxpool_transform_to_column(A_prev, f, 0, stride)
+    A = max_cols.reshape(m, n_C, n_H, n_W)
+    cache = (A_prev, argmax_cols, hparameters)
+    return A, cache
 
 def max_pool_backward(dA, cache):
     '''
@@ -124,19 +194,12 @@ def max_pool_backward(dA, cache):
     :param cache: cache stored from forward pass.
     :return: Max_pool_backward
     '''
-    A_prev, argmax_cols, hparameters, col_indices_height, col_indices_width = cache
-    temp = np.zeros((A_prev.shape))
-    m, prev_d, prev_h, prev_w = A_prev.shape
-    map_size = col_indices_height.shape[1]
-    height  = np.tile(col_indices_height, (1, m * prev_d))
-    width = np.tile(col_indices_width, (1, m * prev_d))
-    max_height = height[argmax_cols.reshape(-1), np.arange(height.shape[1])]
-    max_width = width[argmax_cols.reshape(-1), np.arange(width.shape[1])]
-    max_m = np.repeat(np.arange(m), map_size * prev_d)
-    max_depth = np.tile(np.repeat(np.arange(prev_d), map_size), m)
-    np.add.at(temp, (max_m, max_depth, max_height, max_width), dA.reshape(-1))
-    Max_pool_backward = temp
-    return Max_pool_backward
+    A_prev, argmax_cols, hparameters = cache
+    stride = hparameters['stride']
+    f = hparameters['f']
+
+    dA_prev = maxpool_transform_to_volumn(dA, argmax_cols, A_prev.shape, f, 0, stride)
+    return dA_prev
 
 def random_mini_batches(X, Y, mini_batch_size = 5):
     '''
@@ -275,10 +338,9 @@ def predict(parameters, X, Y):
 def main():
     np.random.seed(2)
     Y_train, X_train, Y_test, X_test = readData()
-    (W1, b1, W2, b2, W3, b3, W4, b4) = model(X_train,Y_train, learning_rate= 0.001, epoch_num= 20)
+    (W1, b1, W2, b2, W3, b3, W4, b4) = model(X_train,Y_train, epoch_num= 10)
     params = (W1, b1, W2, b2, W3, b3, W4, b4)
-    print("Traning set:")
-    predict(params, X_train, Y_train)
+
     print("Test set:")
     predict(params, X_test, Y_test)
 
