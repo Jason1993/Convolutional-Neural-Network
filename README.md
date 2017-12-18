@@ -14,8 +14,8 @@ Running an epoch over all 60000 training items is quite time consuming. I just r
 ## Improvement
 In this program, after every epoch, the learning rate will derease, as
 
-'''Python
+```Python
 learning_rate *= 0.9
-'''
+```
 
 This will help improve the loss function as setting down the learning rate with epoches will make the loss function more stable.
