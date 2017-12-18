@@ -9,10 +9,11 @@ In convolution layers, I use same padding, and stride = 1.
 In max-pooling layers, I use filter size = 2*2, stride = 2.
 
 ## Results
-Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%.
+Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%. If increase the epoch number, the accuracy will improve as reaching over 99%.
 
 ## Improvement
 In this program, after every epoch, the learning rate will derease, as
+
 '''Python
 learning_rate *= 0.9
 '''
