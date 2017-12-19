@@ -1,17 +1,17 @@
 # Convolutional-Neural-Network
-This is a 3 layers Convolutional Neural Network. It has two convolution layers and one fully connected layer. Since it is a simple demon, I didn't write layers as classes, instead I wrote layers as functions for simplicity. The detailled structure of the network as be shown as the following.
+This is a 3 layers Convolutional Neural Network. It has two convolution layers and one fully connected layer. Since it is a simple demon, layers was not written as classes, instead I wrote layers as functions for simplicity. The detailled structure of the network as be shown as the following.
 
 ## Detailed Structure
 Data -> Convolution -> ReLU -> Max-pooling -> Convolution -> ReLU -> Max-pooling -> Dropout -> Dense -> ReLU -> Dense -> Softmax -> Output.
 
 ## Some Hyper Parameters
-In convolution layers, I use same padding, and stride = 1.
+In convolution layers, Padding is 'same' padding, and stride = 1.
 
 
-In max-pooling layers, I use filter size = 2*2, stride = 2.
+In max-pooling layers, filter size is (2*2), and stride = 2.
 
 
-I use mini-batch stochastic gradient descent, and batch_size = 100, so there are 600 mini-batches in total. Running an epoch over the all 600 mini-batches will take about 15 minutes on my laptop.
+This program uses mini-batch stochastic gradient descent, and batch_size = 100, so there are 600 mini-batches in total. Running an epoch over the all 600 mini-batches will take about 15 minutes on my laptop.
 
 ## Results
 Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%. If increase the epoch number to about 20, the accuracy will improve as reaching over 99%.
