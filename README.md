@@ -14,7 +14,7 @@ In max-pooling layers, filter size is (2*2), and stride = 2.
 This program uses mini-batch stochastic gradient descent, and batch_size = 100, so there are 600 mini-batches in total. Running an epoch over the all 600 mini-batches will take about 15 minutes on my laptop.
 
 ## Results
-Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%. If increase the epoch number to about 20, the accuracy will improve as reaching over 99%.
+Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%. If increase the epoch number, the accuracy will also increase.
 
 ## Improvement
 In this program, after every epoch, the learning rate will derease, as
