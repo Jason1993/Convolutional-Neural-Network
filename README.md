@@ -1,5 +1,5 @@
 # Convolutional-Neural-Network
-This is a 3 layers Convolutional Neural Network. It has two convolution layers and one fully connected layer. Since it is a simple demon, layers was not written as classes, instead I wrote layers as functions for simplicity. The detailled structure of the network as be shown as the following.
+This is a 3 layers Convolutional Neural Network. It has two convolution layers and one fully connected layer. Since it is a simple demo, layers was not written as classes, instead I wrote layers as functions for simplicity. The detailled structure of the network as be shown as the following.
 
 ## Detailed Structure
 Data -> Convolution -> ReLU -> Max-pooling -> Convolution -> ReLU -> Max-pooling -> Dropout -> Dense -> ReLU -> Dense -> Softmax -> Output.
