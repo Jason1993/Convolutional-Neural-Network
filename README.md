@@ -6,7 +6,12 @@ Data -> Convolution -> ReLU -> Max-pooling -> Convolution -> ReLU -> Max-pooling
 
 ## Some Hyper Parameters
 In convolution layers, I use same padding, and stride = 1.
+
+
 In max-pooling layers, I use filter size = 2*2, stride = 2.
+
+
+I use mini-batch stochastic gradient descent, and batch_size = 100, so there are 600 mini-batches in total. Running an epoch over the all 600 mini-batches will take about 15 minutes on my laptop.
 
 ## Results
 Running an epoch over all 60000 training items is quite time consuming. I just run 10 epoches on the training set, and then make predictions on test set, and the accuracy is 97.98%. If increase the epoch number, the accuracy will improve as reaching over 99%.
